@@ -201,6 +201,45 @@ class DummyWandb:
     def finish(self):
         pass
 
+class ClearMLLogger:
+    """Adapter mapping wandb-style .log(dict) calls to ClearML scalar reporting."""
+    def __init__(self, task):
+        self._logger = task.get_logger()
+
+    def log(self, data: dict):
+        iteration = int(data.get("step", 0))
+        for key, value in data.items():
+            if key == "step":
+                continue
+            if isinstance(value, dict):
+                # e.g. "centered_results": {"task_a": 0.5, ...}
+                for sub_key, sub_val in value.items():
+                    if isinstance(sub_val, (int, float)):
+                        self._logger.report_scalar(title=key, series=str(sub_key), value=sub_val, iteration=iteration)
+            elif isinstance(value, (int, float)):
+                # e.g. "train/loss" -> title="train", series="loss"
+                if "/" in key:
+                    title, series = key.split("/", 1)
+                else:
+                    title, series = key, key
+                self._logger.report_scalar(title=title, series=series, value=value, iteration=iteration)
+
+    def finish(self):
+        pass  # ClearML auto-closes on process exit
+
+class MultiLogger:
+    """Fan-out logger: forwards log/finish to all contained loggers."""
+    def __init__(self, loggers):
+        self._loggers = loggers
+
+    def log(self, data: dict):
+        for logger in self._loggers:
+            logger.log(data)
+
+    def finish(self):
+        for logger in self._loggers:
+            logger.finish()
+
 # hardcoded BF16 peak flops for various GPUs
 # inspired by torchtitan: https://github.com/pytorch/torchtitan/blob/main/torchtitan/tools/utils.py
 # and PR: https://github.com/karpathy/nanochat/pull/147

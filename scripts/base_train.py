@@ -26,7 +26,7 @@ import torch
 
 from nanochat.gpt import GPT, GPTConfig
 from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit
-from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type, get_peak_flops
+from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, ClearMLLogger, MultiLogger, print_banner, get_base_dir, autodetect_device_type, get_peak_flops
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
 from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
 from nanochat.loss_eval import evaluate_bpb
@@ -81,6 +81,18 @@ parser.add_argument("--model-tag", type=str, default=None, help="override model 
 args = parser.parse_args()
 user_config = vars(args).copy()  # for logging
 # -----------------------------------------------------------------------------
+# ClearML: init task and optionally enqueue for remote execution.
+# Must happen before compute_init() so that execute_remotely() can exit the
+# local process before DDP is set up.  LOCAL_RANK guards against duplicate
+# Task.init() calls when torchrun spawns multiple workers on the same node.
+_clearml_task = None
+if os.environ.get("CLEARML_TASK_ID"):
+    from clearml import Task as ClearMLTask
+    # Agent sets CLEARML_TASK_ID; Task.init() attaches to that existing task.
+    _clearml_task = ClearMLTask.init(auto_connect_arg_parser=False)
+    _clearml_task.connect(user_config, name="Args")
+
+# -----------------------------------------------------------------------------
 # Compute init and wandb logging
 
 device_type = autodetect_device_type() if args.device_type == "" else args.device_type
@@ -99,6 +111,10 @@ else:
 # wandb logging init
 use_dummy_wandb = args.run == "dummy" or not master_process
 wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat", name=args.run, config=user_config)
+
+# Wire ClearML into the logger fan-out (only on master process)
+if _clearml_task is not None and master_process:
+    wandb_run = MultiLogger([wandb_run, ClearMLLogger(_clearml_task)])
 
 # Flash Attention status
 if HAS_FA3:
