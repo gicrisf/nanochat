@@ -1,6 +1,6 @@
 #!/bin/bash
-# Single-GPU run for ClearML agent.
-# ClearML handles venv/dep installation; this script only does data/training.
+# Training task for ClearML agent (single GPU).
+# Requires scripts/clearml_data.py to have been run at least once.
 set -e
 
 export OMP_NUM_THREADS=1
@@ -9,12 +9,17 @@ mkdir -p "$NANOCHAT_BASE_DIR"
 
 python -m nanochat.report reset
 
-# Download data and train tokenizer (skipped if already done on this machine)
-python -m nanochat.dataset -n 370
-python -m scripts.tok_train
-python -m scripts.tok_eval
+# Fetch tokenizer from ClearML Dataset and wire up shard symlinks
+python -m scripts.clearml_setup
 
 # Pretraining (single GPU)
 python -m scripts.base_train ${TRAIN_ARGS:---depth=12}
 
-python -m nanochat.report generate
+python -c "
+from clearml import Task
+from nanochat.report import get_report
+report_file = get_report().generate()
+task = Task.current_task()
+if task:
+    task.upload_artifact('report', report_file)
+"

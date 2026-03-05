@@ -606,6 +606,12 @@ get_report().log(section="Base model training", data=[
     }
 ])
 
+# Register final checkpoint in ClearML model registry
+if _clearml_task is not None and master_process:
+    from clearml import OutputModel
+    output_model = OutputModel(task=_clearml_task, framework="PyTorch")
+    output_model.update_weights(weights_filename=checkpoint_dir, auto_delete_file=False)
+
 # cleanup
 wandb_run.finish() # wandb run finish
 compute_cleanup()
