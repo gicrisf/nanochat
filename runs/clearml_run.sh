@@ -15,6 +15,6 @@ python -m scripts.tok_train
 python -m scripts.tok_eval
 
 # Pretraining (single GPU)
-python -m scripts.base_train -- ${TRAIN_ARGS:---depth=12 --run=dummy}
+python -m scripts.base_train ${TRAIN_ARGS:---depth=12}
 
 python -m nanochat.report generate
